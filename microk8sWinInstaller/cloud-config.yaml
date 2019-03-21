@@ -1,0 +1,3 @@
+﻿snap:
+    commands:
+        00: snap install microk8s --classic
