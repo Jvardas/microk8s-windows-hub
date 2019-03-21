@@ -17,6 +17,8 @@ namespace microk8sWinInstaller
         static void Main(string[] args)
         {
 
+            Console.WriteLine("Searching latest multipass release...");
+
             var gitClient = new GitHubClient(new ProductHeaderValue("MultipassInstaller"));
             var releases = gitClient.Repository.Release.GetAll("CanonicalLtd", "multipass").GetAwaiter().GetResult();
             var latestRelease = releases.Where(r => r.Assets.Any(a => a.ContentType == "application/x-msdos-program")).OrderByDescending(r => r.PublishedAt).FirstOrDefault();
@@ -38,8 +40,16 @@ namespace microk8sWinInstaller
             }
 
             var cloudConfigPath = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "cloud-config.yaml");
-            var launchCommand = $"launch -n test-alice --cloud-init \"{cloudConfigPath}\"";
+            
+            var launchCommand = $"launch --cloud-init \"{cloudConfigPath}\"";
+            
             ExecMultipassCommand(launchCommand);
+
+
+            ExecMultipassCommand("ls");
+
+            Console.ReadKey();
+
         }
 
         public static void DownloadInstaller(string uri, string targetName)
@@ -128,12 +138,19 @@ namespace microk8sWinInstaller
             {
                 CreateNoWindow = false,
                 UseShellExecute = false,
-                Arguments = command
+                Arguments = command,
+                RedirectStandardOutput = true
             };
 
             p.StartInfo = startinfo;
 
             p.Start();
+
+            while (!p.StandardOutput.EndOfStream)
+            {
+                var line = p.StandardOutput.ReadLine();
+                Console.WriteLine(line);
+            }
 
             p.WaitForExit();
         }
