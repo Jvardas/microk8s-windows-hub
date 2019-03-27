@@ -1,5 +1,18 @@
 # microk8s-windows-installer
-Simple installer, in the form of a console application, in windows that will use multipass to install microk8s.
 
-# process
-After launching the app will automatically download the latest .exe of multipass from https://github.com/CanonicalLtd/multipass/releases, and then install it silently on the background. (After that the user will be prompt to reboot his computer since windows 10 will need to enable HyperV in order to host the virtual machines. After rebooting the installer will re-open automatically and continue with launching a VM, namely test-alice, with the command 'launch -n test-alice --cloud-init cloud-coonfig.yaml', which will automatically install microk8s in the VM).
+Simple windows installer, in the form of a console application that uses multipass to install microk8s.
+
+# Prerequisites
+|||
+|------------------|------------|
+| Operating System | Windows 10 |
+| Hypervisor       | Hyper-V    |
+
+# Installation process
+
+The app automatically downloads the latest multipass release for windows from [github][] and installs it silently on the background.
+
+After the installation has completed, you will be prompted to restart your system so that Hyper-V gets enabled.
+After rebooting, the installer automatically continues with the creation and launch of a VM with the name `test-alice` using the following command: `launch -n test-alice --cloud-init cloud-config.yaml`. Since multipass supports `cloud-init`, microk8s is installed in the spawned VM with the help of the cloud configuration file `cloud-config.yaml`
+
+[github]: [https://github.com/CanonicalLtd/multipass/releases]
