@@ -8,17 +8,24 @@ using System.Linq;
 using System.Management.Automation;
 using System.Net;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Threading;
 
 namespace microk8sWinInstaller
 {
     class Program
-    {
+    {        
+
         static void Main(string[] args)
         {
+            var startupFolder = Environment.GetFolderPath(Environment.SpecialFolder.Startup);
+            var startupShortcutPath = Path.Combine(startupFolder, "microk8sWinInstaller.lnk");
+            var executablePath = Assembly.GetEntryAssembly().Location;
+
 
             Console.WriteLine("Searching latest multipass release...");
-
+            
             var gitClient = new GitHubClient(new ProductHeaderValue("MultipassInstaller"));
             var releases = gitClient.Repository.Release.GetAll("CanonicalLtd", "multipass").GetAwaiter().GetResult();
             var latestRelease = releases.Where(r => r.Assets.Any(a => a.ContentType == "application/x-msdos-program")).OrderByDescending(r => r.PublishedAt).FirstOrDefault();
@@ -32,21 +39,37 @@ namespace microk8sWinInstaller
 
             var assetUrl = asset.BrowserDownloadUrl;
 
-            DownloadInstaller(assetUrl, asset.Name);
+            DownloadInstaller(assetUrl, Path.Combine(Path.GetDirectoryName(executablePath), asset.Name));
 
             if (!Directory.Exists(@"C:\Program Files\Multipass"))
             {
+                CreateShortcut(startupShortcutPath, executablePath);
                 DeployApplication(Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), asset.Name));
+            }
+
+            if (File.Exists(startupShortcutPath))
+            {
+                File.Delete(startupShortcutPath);
             }
 
             var cloudConfigPath = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "cloud-config.yaml");
             
             var launchCommand = $"launch --cloud-init \"{cloudConfigPath}\"";
+
+            string vmName = "";
+            ExecMultipassCommand(launchCommand, line => {
+                var name = Regex.Match(line, @"(\w+-\w+)\s+")?.Groups[1]?.Value;
+                Console.WriteLine(line);
+                if(!String.IsNullOrWhiteSpace(name))
+                {
+                    vmName = name;
+                }
+            });
             
-            ExecMultipassCommand(launchCommand);
-
-
-            ExecMultipassCommand("ls");
+            if(!String.IsNullOrWhiteSpace(vmName))
+            {
+                OpenShell(vmName);
+            }
 
             Console.ReadKey();
 
@@ -54,6 +77,9 @@ namespace microk8sWinInstaller
 
         public static void DownloadInstaller(string uri, string targetName)
         {
+            if (File.Exists(targetName))
+                return;
+
             var mre = new ManualResetEvent(false);
 
             HttpWebRequest request = (HttpWebRequest)WebRequest.Create(uri);
@@ -69,7 +95,7 @@ namespace microk8sWinInstaller
                 BackgroundColor = ConsoleColor.DarkGray,
                 BackgroundCharacter = '\u2593'
             };
-
+            
             var pbar = new ProgressBar(totalTicks, $"Downloading {targetName}", options);
 
             asyncResult = request.BeginGetResponse((state) =>
@@ -130,7 +156,7 @@ namespace microk8sWinInstaller
             return data;
         }
 
-        private static void ExecMultipassCommand(string command)
+        private static void ExecMultipassCommand(string command, Action<string> outputCallback = null)
         {
             Process p = new Process();
 
@@ -149,10 +175,48 @@ namespace microk8sWinInstaller
             while (!p.StandardOutput.EndOfStream)
             {
                 var line = p.StandardOutput.ReadLine();
-                Console.WriteLine(line);
+                outputCallback?.Invoke(line);
             }
 
             p.WaitForExit();
+        }
+
+        private static void OpenShell (string VMName)
+        {
+            Process p = new Process();
+
+            ProcessStartInfo startinfo = new ProcessStartInfo(@"cmd.exe")
+            {
+                Arguments = $"/c multipass shell {VMName}",
+            };
+
+            p.StartInfo = startinfo;
+
+            p.Start();
+        }
+
+        public static void CreateShortcut(string shortcutPath, string targetPath)
+        {
+            Type t = Type.GetTypeFromCLSID(new Guid("72C24DD5-D70A-438B-8A42-98424B88AFB8")); //Windows Script Host Shell Object
+            dynamic shell = Activator.CreateInstance(t);
+            try
+            {
+                var lnk = shell.CreateShortcut(shortcutPath);
+                try
+                {
+                    lnk.TargetPath = targetPath;
+                    lnk.IconLocation = "shell32.dll, 1";
+                    lnk.Save();
+                }
+                finally
+                {
+                    Marshal.FinalReleaseComObject(lnk);
+                }
+            }
+            finally
+            {
+                Marshal.FinalReleaseComObject(shell);
+            }
         }
 
         public static void DeployApplication(string executableFilePath)
