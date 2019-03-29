@@ -12,7 +12,7 @@ Simple windows installer, in the form of a console application that uses multipa
 
 The app automatically downloads the latest multipass release for windows from [github] and installs it silently on the background.
 
-After the installation has completed, you will be prompted to restart your system so that Hyper-V gets enabled.
-After rebooting, the installer automatically continues with the creation and launch of a VM with the name `test-alice` using the following command: `launch -n test-alice --cloud-init cloud-config.yaml`. Since multipass supports `cloud-init`, microk8s is installed in the spawned VM with the help of the cloud configuration file `cloud-config.yaml`
+After the installation has completed, your system will restart automatically so that Hyper-V gets enabled. **Don't panic it's normal**
+After rebooting, the installer automatically continues with the creation and launch of a VM with the a random name using the following command: `launch --cloud-init cloud-config.yaml`. Since multipass supports `cloud-init`, microk8s is installed in the spawned VM with the help of the cloud configuration file `cloud-config.yaml`. Finally a new command prompt will open already in the VM's shell so the user can use microk8s.
 
 [github]: https://github.com/CanonicalLtd/multipass/releases
