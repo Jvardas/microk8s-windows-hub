@@ -1,6 +1,7 @@
 ﻿using Octokit;
 using ShellProgressBar;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
@@ -9,15 +10,157 @@ using System.Management.Automation;
 using System.Net;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.ServiceProcess;
 using System.Text.RegularExpressions;
 using System.Threading;
+using static microk8sWinInstaller.Commons;
 
 namespace microk8sWinInstaller
 {
     class Program
-    {        
+    {
 
         static void Main(string[] args)
+        {
+
+            ServiceController multipassService = ServiceController.GetServices().FirstOrDefault(sc => sc.ServiceName == "Multipass");
+
+            if (multipassService == null)
+            {
+                CreateNewInstance();
+                multipassService = ServiceController.GetServices().FirstOrDefault(sc => sc.ServiceName == "Multipass");
+            }
+
+            switch (multipassService.Status)
+            {
+                case ServiceControllerStatus.ContinuePending:
+                case ServiceControllerStatus.StartPending:
+                    Console.WriteLine("Multipassd is going to be running soon");
+                    multipassService.WaitForStatus(ServiceControllerStatus.Running);
+                    break;
+                case ServiceControllerStatus.PausePending:
+                    Console.WriteLine("Multipassd is being paused");
+                    multipassService.WaitForStatus(ServiceControllerStatus.Paused);
+                    Console.WriteLine("Multipassd is continuing");
+                    multipassService.Continue();
+                    multipassService.WaitForStatus(ServiceControllerStatus.Running);
+                    break;
+                case ServiceControllerStatus.StopPending:
+                    Console.WriteLine("Multipassd is being stopped");
+                    multipassService.WaitForStatus(ServiceControllerStatus.Stopped);
+                    Console.WriteLine("Multipassd is starting");
+                    multipassService.Start();
+                    multipassService.WaitForStatus(ServiceControllerStatus.Running);
+                    break;
+                case ServiceControllerStatus.Paused:
+                    Console.WriteLine("Multipassd is continuing");
+                    multipassService.Continue();
+                    multipassService.WaitForStatus(ServiceControllerStatus.Running);
+                    break;
+                case ServiceControllerStatus.Stopped:
+                    Console.WriteLine("Multipassd is starting");
+                    multipassService.Start();
+                    multipassService.WaitForStatus(ServiceControllerStatus.Running);
+                    break;
+                default:
+                    break;
+            }
+
+            Console.WriteLine("Multipassd is running");
+
+            var instanceCount = 0;
+            var activeInstances = new Dictionary<int, MultipassInstance>();
+            ExecMultipassCommand("list", line =>
+            {
+                Console.Write((instanceCount == 0 ? "#" : (instanceCount - 1).ToString()) + " ");
+                Console.WriteLine($"{line}");
+                if (instanceCount++ == 0) return;
+
+                var matches = Regex.Matches(line, @"(.+?)\s+");
+                var name = matches[0].Groups[1]?.Value;
+                var status = matches[1].Groups[1]?.Value;
+                if (!String.IsNullOrWhiteSpace(name))
+                {
+                    activeInstances.Add(instanceCount - 2, new MultipassInstance(name, status)); // -2 cause the first line has the table headers and no vm names
+                }
+            });
+
+            if (!activeInstances.Any())
+            {
+                var newVmName = CreateNewInstance();
+                activeInstances.Add(0, new MultipassInstance(newVmName, MultipassInstanceStatus.Running));
+            }
+
+            Console.WriteLine();
+            var selectedInstanceId = -1;
+            if (activeInstances.Count >= 1)
+            {
+                while (true)
+                {
+                    Console.WriteLine($"Enter a vm id (0 - {activeInstances.Count - 1}) to proceed or {activeInstances.Count} to create a new instance or p to purge all deleted instances: ");
+                    var strSelectedInstanceId = Console.ReadLine();
+                    if (strSelectedInstanceId == "p")
+                    {
+
+                        ExecMultipassCommand("purge", output =>
+                        {
+                            Console.WriteLine(output);
+                        });
+                        Console.ReadKey();
+                        return;
+                    }
+                    if (Int32.TryParse(strSelectedInstanceId, out selectedInstanceId) && 0 <= selectedInstanceId && activeInstances.Count >= selectedInstanceId)
+                    {
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                selectedInstanceId = 0;
+            }
+
+            if (selectedInstanceId == activeInstances.Count)
+            {
+                var newVmName = CreateNewInstance();
+                activeInstances.Add(0, new MultipassInstance(newVmName, MultipassInstanceStatus.Running));
+            }
+
+            var menuItems = new Dictionary<int, string>();
+
+            var selectedInstance = activeInstances[selectedInstanceId];
+
+            Console.Clear();
+
+            Console.WriteLine("Available commands:");
+            foreach (var cmd in selectedInstance.InstanceCommands)
+            {
+                Console.WriteLine($"{cmd.Key} {cmd.Value.Description}");
+            }
+
+            Console.WriteLine();
+            var selectedCommandId = -1;
+            while (true)
+            {
+                Console.WriteLine($"Enter a command id (0 - {selectedInstance.InstanceCommands.Count - 1}) to proceed:");
+                var strSelectedCommandId = Console.ReadLine();
+                if (Int32.TryParse(strSelectedCommandId, out selectedCommandId) && 0 <= selectedCommandId && selectedInstance.InstanceCommands.Count > selectedCommandId)
+                {
+                    break;
+                }
+            }
+
+            var selectedCommand = selectedInstance.InstanceCommands[selectedCommandId];
+            Console.WriteLine();
+            var commandResult = selectedCommand.Command();
+            Console.WriteLine(commandResult);
+            Console.WriteLine();
+            //OpenShell(activeInstances[selectedInstanceId]);
+
+            Console.ReadKey();
+        }
+
+        public static string CreateNewInstance(bool openShellOnComplete = false)
         {
             var startupFolder = Environment.GetFolderPath(Environment.SpecialFolder.Startup);
             var startupShortcutPath = Path.Combine(startupFolder, "microk8sWinInstaller.lnk");
@@ -25,14 +168,14 @@ namespace microk8sWinInstaller
 
 
             Console.WriteLine("Searching latest multipass release...");
-            
+
             var gitClient = new GitHubClient(new ProductHeaderValue("MultipassInstaller"));
             var releases = gitClient.Repository.Release.GetAll("CanonicalLtd", "multipass").GetAwaiter().GetResult();
             var latestRelease = releases.Where(r => r.Assets.Any(a => a.ContentType == "application/x-msdos-program")).OrderByDescending(r => r.PublishedAt).FirstOrDefault();
 
             if (latestRelease == null)
             {
-                return;
+                return null;
             }
 
             var asset = latestRelease.Assets.First(a => a.ContentType == "application/x-msdos-program");
@@ -53,26 +196,26 @@ namespace microk8sWinInstaller
             }
 
             var cloudConfigPath = Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), "cloud-config.yaml");
-            
+
             var launchCommand = $"launch --cloud-init \"{cloudConfigPath}\"";
 
             string vmName = "";
-            ExecMultipassCommand(launchCommand, line => {
+            ExecMultipassCommand(launchCommand, line =>
+            {
                 var name = Regex.Match(line, @"(\w+-\w+)\s+")?.Groups[1]?.Value;
                 Console.WriteLine(line);
-                if(!String.IsNullOrWhiteSpace(name))
+                if (!String.IsNullOrWhiteSpace(name))
                 {
                     vmName = name;
                 }
             });
-            
-            if(!String.IsNullOrWhiteSpace(vmName))
+
+            if (!String.IsNullOrWhiteSpace(vmName) && openShellOnComplete)
             {
                 OpenShell(vmName);
             }
 
-            Console.ReadKey();
-
+            return vmName;
         }
 
         public static void DownloadInstaller(string uri, string targetName)
@@ -95,7 +238,7 @@ namespace microk8sWinInstaller
                 BackgroundColor = ConsoleColor.DarkGray,
                 BackgroundCharacter = '\u2593'
             };
-            
+
             var pbar = new ProgressBar(totalTicks, $"Downloading {targetName}", options);
 
             asyncResult = request.BeginGetResponse((state) =>
@@ -154,45 +297,6 @@ namespace microk8sWinInstaller
 
             UpdateProgressBar(100, pb, $"{contentLength / (1024f * 1024f):0.##}/{contentLength / (1024f * 1024f):0.##} MB");
             return data;
-        }
-
-        private static void ExecMultipassCommand(string command, Action<string> outputCallback = null)
-        {
-            Process p = new Process();
-
-            ProcessStartInfo startinfo = new ProcessStartInfo(@"C:\Program Files\Multipass\bin\multipass.exe")
-            {
-                CreateNoWindow = false,
-                UseShellExecute = false,
-                Arguments = command,
-                RedirectStandardOutput = true
-            };
-
-            p.StartInfo = startinfo;
-
-            p.Start();
-
-            while (!p.StandardOutput.EndOfStream)
-            {
-                var line = p.StandardOutput.ReadLine();
-                outputCallback?.Invoke(line);
-            }
-
-            p.WaitForExit();
-        }
-
-        private static void OpenShell (string VMName)
-        {
-            Process p = new Process();
-
-            ProcessStartInfo startinfo = new ProcessStartInfo(@"cmd.exe")
-            {
-                Arguments = $"/c multipass shell {VMName}",
-            };
-
-            p.StartInfo = startinfo;
-
-            p.Start();
         }
 
         public static void CreateShortcut(string shortcutPath, string targetPath)
