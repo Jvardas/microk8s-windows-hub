@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.28010.2046
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "microk8sWinInstaller", "microk8sWinInstaller\microk8sWinInstaller.csproj", "{62466A06-E727-4849-8BF7-5F977FAB0926}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "microk8sWinHub", "microk8sWinHub\microk8sWinHub.csproj", "{62466A06-E727-4849-8BF7-5F977FAB0926}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
