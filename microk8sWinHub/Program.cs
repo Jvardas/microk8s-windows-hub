@@ -14,20 +14,16 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using static microk8sWinInstaller.Commons;
 
+[assembly: AssemblyInformationalVersionAttribute("Octokit Reflection Error when ILMerged")] // <-- Bypass the error described in the string on the left
 namespace microk8sWinInstaller
 {
     class Program
     {
         /*TODO*/
-        //default intance
-        //generate bats for all/selected
-        //default microk8s commandlist
-        //instance microk8s commandlist
-        //default instance mikcrok8s commandlist
-        //user added commands & arguments
-        //require elevation trhough hub?
-        //generate-bin sto dir tou commandlist
-        /*------------------------------------------------*/
+        //delete all
+        //stop all
+        //generate batches
+        /*-------------------*/
 
 
         public enum ProgramState
@@ -138,7 +134,7 @@ namespace microk8sWinInstaller
             {
                 while (true)
                 {
-                    Console.WriteLine($"Enter a vm id (0 - {activeInstances.Count - 1}) to proceed, {activeInstances.Count} to create a new instance, p to purge all deleted instances or type \"exit\" to exit: ");
+                    Console.WriteLine($"Enter a vm id (0 - {activeInstances.Count - 1}) to proceed, type \"new\" to create a new instance, p to purge all deleted instances or type \"exit\" to exit: ");
                     var strSelectedInstanceId = Console.ReadLine();
                     if (strSelectedInstanceId == "p")
                     {
@@ -154,6 +150,13 @@ namespace microk8sWinInstaller
                         programState = ProgramState.Exit;
                         return;
                     }
+                    else if (strSelectedInstanceId == "new")
+                    {
+                        var newInstance = CreateNewInstance();
+                        selectedInstanceId = activeInstances.Count;
+                        activeInstances.Add(selectedInstanceId, newInstance);
+                        break;
+                    }
                     if (Int32.TryParse(strSelectedInstanceId, out selectedInstanceId) && 0 <= selectedInstanceId && activeInstances.Count >= selectedInstanceId)
                     {
                         break;
@@ -165,17 +168,19 @@ namespace microk8sWinInstaller
                 selectedInstanceId = 0;
             }
 
-            if (selectedInstanceId == activeInstances.Count)
-            {
-                var newInstance = CreateNewInstance();
-                activeInstances.Add(0, newInstance);
-            }
-
             var menuItems = new Dictionary<int, string>();
 
             selectedInstance = activeInstances[selectedInstanceId];
-
-            programState = ProgramState.Commands;
+            var isPopulated = selectedInstance.PopulateCommands();
+            if (isPopulated)
+            {
+                programState = ProgramState.Commands;
+            }
+            else
+            {
+                Console.WriteLine("Press any key to continue...");
+                Console.ReadKey();
+            }
         }
 
         public static void CommandsScreen()
@@ -212,6 +217,11 @@ namespace microk8sWinInstaller
                 var commandResult = selectedCommand.Command();
                 Console.WriteLine(commandResult);
                 Console.WriteLine();
+                if (selectedCommand.ShouldExitAfterExecution)
+                {
+                    programState = ProgramState.Main;
+                    return;
+                }
             }
         }
 
@@ -237,10 +247,9 @@ namespace microk8sWinInstaller
 
             var assetUrl = asset.BrowserDownloadUrl;
 
-            DownloadInstaller(assetUrl, Path.Combine(Path.GetDirectoryName(executablePath), asset.Name));
-
             if (!Directory.Exists(@"C:\Program Files\Multipass"))
             {
+                DownloadInstaller(assetUrl, Path.Combine(Path.GetDirectoryName(executablePath), asset.Name));
                 CreateShortcut(startupShortcutPath, executablePath);
                 DeployApplication(Path.Combine(Path.GetDirectoryName(Assembly.GetEntryAssembly().Location), asset.Name));
             }
@@ -260,6 +269,10 @@ namespace microk8sWinInstaller
             ExecMultipassCommand(launchCommand, line =>
             {
                 var matches = Regex.Matches(line, @"(.+?)\s+");
+                if (matches.Count < 3)
+                {
+                    return;
+                }
                 vmName = matches[0].Groups[1]?.Value;
                 status = matches[1].Groups[1]?.Value;
                 ipv4 = matches[2].Groups[1]?.Value;

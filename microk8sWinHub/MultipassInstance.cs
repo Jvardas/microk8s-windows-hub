@@ -29,95 +29,11 @@ namespace microk8sWinInstaller
             this.InstanceName = name;
             this.MultipassInstanceStatus = status;
             this.IPv4 = ipv4;
+        }
 
-            switch (MultipassInstanceStatus)
-            {
-                case MultipassInstanceStatus.None:
-                case MultipassInstanceStatus.Starting:
-                    throw new InvalidOperationException(this.InstanceName + ": Invalid instance status");
-                case MultipassInstanceStatus.Stopped:
-                    InstanceCommands.Add(InstanceCommands.Count, new MultipassInstanceCommand(this)
-                    {
-                        RequireRunningInsance = false,
-                        Description = $"Start {this.InstanceName}",
-                        Command = new Func<string>(() =>
-                        {
-                            var cmdOutput = "";
-                            Console.WriteLine($"Executing command. Please wait for the subprocess to return...");
-                            ExecMultipassCommand("start " + this.InstanceName, output =>
-                            {
-                                cmdOutput += output;
-                                Console.WriteLine(output);
-                            });
-
-                            return cmdOutput;
-                        })
-                    });
-                    break;
-                case MultipassInstanceStatus.Running:
-                    InstanceCommands.Add(InstanceCommands.Count, new MultipassInstanceCommand(this)
-                    {
-                        Description = $"Stop {this.InstanceName}",
-                        Command = new Func<string>(() =>
-                        {
-                            var cmdOutput = "";
-                            Console.WriteLine($"Executing command. Please wait for the subprocess to return...");
-                            ExecMultipassCommand("stop " + this.InstanceName, output =>
-                            {
-                                cmdOutput += output;
-                                Console.WriteLine(output);
-                            });
-                            return cmdOutput;
-                        })
-                    });
-                    break;
-                case MultipassInstanceStatus.Deleted:
-                    break;
-            }
-
-            InstanceCommands.Add(InstanceCommands.Count, new MultipassInstanceCommand(this)
-            {
-                Description = $"Open shell for {this.InstanceName}",
-                Command = new Func<string>(() =>
-                {
-                    Console.WriteLine($"Executing command. Please wait for the subprocess to return...");
-                    ExecMultipassCommand("shell " + this.InstanceName, redirectOutput: false);
-                    return $"Shell openned for {this.InstanceName}";
-                })
-            });
-            
-            var deserializer = new DeserializerBuilder()
-                .WithNamingConvention(new CamelCaseNamingConvention())
-                .WithNamingConvention(new HyphenatedNamingConvention())
-                .Build();
-            var config = deserializer.Deserialize<Config>(File.ReadAllText("config.yaml"));
-            var snapCommmands = config.Snaps.SelectMany(s => s.Commands);
-            foreach (var snapCommand in snapCommmands)
-            {
-                InstanceCommands.Add(InstanceCommands.Count, new MultipassInstanceCommand(this)
-                {
-                    Description = snapCommand.Key,
-                    Command = new Func<string>(() =>
-                    {
-                        Console.WriteLine($"Executing command. Please wait for the subprocess to return...");
-
-                        string output, error;
-                        var exitCode = ExecCommandThroughSSH(this.IPv4, snapCommand.Value, out output, out error);
-                        if (exitCode == 0)
-                        {
-                            Console.WriteLine(output);
-                        }
-                        else
-                        {
-                            Console.ForegroundColor = ConsoleColor.Red;
-                            Console.Error.WriteLine(output);
-                            Console.ResetColor();
-                        }
-                        return $"";
-                    })
-                });
-            }
-
+        public bool PopulateCommands()
+        {
+            InstanceCommands.Clear();
             if (MultipassInstanceStatus == MultipassInstanceStatus.Deleted)
             {
                 InstanceCommands.Add(InstanceCommands.Count, new MultipassInstanceCommand(this)
@@ -139,6 +55,97 @@ namespace microk8sWinInstaller
             {
                 InstanceCommands.Add(InstanceCommands.Count, new MultipassInstanceCommand(this)
                 {
+                    Description = $"Open shell for {this.InstanceName}",
+                    Command = new Func<string>(() =>
+                    {
+                        Console.WriteLine($"Executing command. Please wait for the subprocess to return...");
+                        ExecMultipassCommand("shell " + this.InstanceName, redirectOutput: false);
+                        return $"Shell openned for {this.InstanceName}";
+                    })
+                });
+
+                switch (MultipassInstanceStatus)
+                {
+                    case MultipassInstanceStatus.None:
+                    case MultipassInstanceStatus.Starting:
+                        //throw new InvalidOperationException(this.InstanceName + ": Invalid instance status");
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.Error.WriteLine(this.InstanceName + ": Invalid instance status");
+                        Console.ResetColor();
+                        return false;
+                    case MultipassInstanceStatus.Stopped:
+                        InstanceCommands.Add(InstanceCommands.Count, new MultipassInstanceCommand(this)
+                        {
+                            RequireRunningInsance = false,
+                            Description = $"Start {this.InstanceName}",
+                            Command = new Func<string>(() =>
+                            {
+                                var cmdOutput = "";
+                                Console.WriteLine($"Executing command. Please wait for the subprocess to return...");
+                                ExecMultipassCommand("start " + this.InstanceName, output =>
+                                {
+                                    cmdOutput += output;
+                                    Console.WriteLine(output);
+                                });
+
+                                return cmdOutput;
+                            })
+                        });
+                        break;
+                    case MultipassInstanceStatus.Running:
+                        InstanceCommands.Add(InstanceCommands.Count, new MultipassInstanceCommand(this)
+                        {
+                            Description = $"Stop {this.InstanceName}",
+                            Command = new Func<string>(() =>
+                            {
+                                var cmdOutput = "";
+                                Console.WriteLine($"Executing command. Please wait for the subprocess to return...");
+                                ExecMultipassCommand("stop " + this.InstanceName, output =>
+                                {
+                                    cmdOutput += output;
+                                    Console.WriteLine(output);
+                                });
+                                return cmdOutput;
+                            })
+                        });
+                        break;
+                }
+
+                var deserializer = new DeserializerBuilder()
+                    .WithNamingConvention(new CamelCaseNamingConvention())
+                    .WithNamingConvention(new HyphenatedNamingConvention())
+                    .Build();
+                var config = deserializer.Deserialize<Config>(File.ReadAllText("config.yaml"));
+                var snapCommmands = config.Snaps.SelectMany(s => s.Commands);
+                foreach (var snapCommand in snapCommmands)
+                {
+                    InstanceCommands.Add(InstanceCommands.Count, new MultipassInstanceCommand(this)
+                    {
+                        Description = snapCommand.Key,
+                        Command = new Func<string>(() =>
+                        {
+                            Console.WriteLine($"Executing command. Please wait for the subprocess to return...");
+
+                            string output, error;
+                            var exitCode = ExecCommandThroughSSH(this.IPv4, snapCommand.Value, out output, out error);
+                            if (exitCode == 0)
+                            {
+                                Console.WriteLine(output);
+                            }
+                            else
+                            {
+                                Console.ForegroundColor = ConsoleColor.Red;
+                                Console.Error.WriteLine(output);
+                                Console.ResetColor();
+                            }
+                            return $"";
+                        })
+                    });
+                }
+
+                InstanceCommands.Add(InstanceCommands.Count, new MultipassInstanceCommand(this)
+                {
+                    ShouldExitAfterExecution = true,
                     RequireRunningInsance = false,
                     Description = $"Delete {this.InstanceName}",
                     Command = new Func<string>(() =>
@@ -153,7 +160,7 @@ namespace microk8sWinInstaller
                 });
             }
 
-
+            return true;
         }
 
     }
@@ -166,6 +173,7 @@ namespace microk8sWinInstaller
         }
 
         public bool RequireRunningInsance { get; set; } = true;
+        public bool ShouldExitAfterExecution { get; set; } = true;
         public MultipassInstance Instance { get; private set; }
         public string Description { get; set; }
 
