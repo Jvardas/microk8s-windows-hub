@@ -173,7 +173,7 @@ namespace microk8sWinInstaller
         }
 
         public bool RequireRunningInsance { get; set; } = true;
-        public bool ShouldExitAfterExecution { get; set; } = true;
+        public bool ShouldExitAfterExecution { get; set; } = false;
         public MultipassInstance Instance { get; private set; }
         public string Description { get; set; }
 
