@@ -1,6 +1,8 @@
-﻿using System;
+﻿using Renci.SshNet;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -9,43 +11,58 @@ namespace microk8sWinInstaller
 {
     public static class Commons
     {
-        public static void ExecMultipassCommand(string command, Action<string> outputCallback = null)
+        public static void ExecMultipassCommand(string command, Action<string> outputCallback = null, bool redirectOutput = true)
         {
             Process p = new Process();
 
-            ProcessStartInfo startinfo = new ProcessStartInfo(@"C:\Program Files\Multipass\bin\multipass.exe")
+            ProcessStartInfo startinfo = new ProcessStartInfo(@"multipass")
             {
-                CreateNoWindow = false,
-                UseShellExecute = false,
+                CreateNoWindow = !redirectOutput,
+                UseShellExecute = !redirectOutput,
                 Arguments = command,
-                RedirectStandardOutput = true
+                RedirectStandardOutput = redirectOutput,
             };
 
             p.StartInfo = startinfo;
 
             p.Start();
 
-            while (!p.StandardOutput.EndOfStream)
+            if (redirectOutput)
             {
-                var line = p.StandardOutput.ReadLine();
-                outputCallback?.Invoke(line);
-            }
+                while (!p.StandardOutput.EndOfStream)
+                {
+                    var line = p.StandardOutput.ReadLine();
+                    outputCallback?.Invoke(line);
+                }
 
-            p.WaitForExit();
+                p.WaitForExit();
+            }
         }
 
-        public static void OpenShell(string VMName)
+        public static void StartMultipassInstance(string instanceName)
         {
-            Process p = new Process();
-
-            ProcessStartInfo startinfo = new ProcessStartInfo(@"cmd.exe")
+            var cmdOutput = "";
+            Console.WriteLine($"Executing command. Please wait for the subprocess to return...");
+            ExecMultipassCommand("start " + instanceName, output =>
             {
-                Arguments = $"/c multipass shell {VMName}",
-            };
+                cmdOutput += output;
+                Console.WriteLine(output);
+            });
+        }
 
-            p.StartInfo = startinfo;
+        public static int ExecCommandThroughSSH(string ipv4, string command, out string output, out string error)
+        {
+            var pk = new PrivateKeyFile(Path.Combine(@"C:\Windows\SysNative\config\systemprofile\AppData\Roaming\multipassd\ssh-keys", "id_rsa"));
+            var ci = new ConnectionInfo(ipv4, "multipass", new PrivateKeyAuthenticationMethod("multipass", pk));
 
-            p.Start();
+            using (var client = new SshClient(ci))
+            {
+                client.Connect();
+                var cmdResult = client.RunCommand(command);
+                output = cmdResult.Result;
+                error = cmdResult.Error;
+                return cmdResult.ExitStatus;
+            }
         }
     }
 }

@@ -3,7 +3,6 @@ using ShellProgressBar;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Management.Automation;
@@ -19,9 +18,50 @@ namespace microk8sWinInstaller
 {
     class Program
     {
+        /*TODO*/
+        //default intance
+        //generate bats for all/selected
+        //default microk8s commandlist
+        //instance microk8s commandlist
+        //default instance mikcrok8s commandlist
+        //user added commands & arguments
+        //require elevation trhough hub?
+        //generate-bin sto dir tou commandlist
+        /*------------------------------------------------*/
+
+
+        public enum ProgramState
+        {
+            Main,
+            Commands,
+            Exit
+        }
+
+        static ProgramState programState = ProgramState.Main;
+        static MultipassInstance selectedInstance = null;
 
         static void Main(string[] args)
         {
+            while (true)
+            {
+                switch (programState)
+                {
+                    case ProgramState.Main:
+                        MainScreen();
+                        break;
+                    case ProgramState.Commands:
+                        CommandsScreen();
+                        break;
+                    case ProgramState.Exit:
+                        return;
+                }
+            }
+        }
+
+        public static void MainScreen()
+        {
+            Console.Clear();
+            selectedInstance = null;
 
             ServiceController multipassService = ServiceController.GetServices().FirstOrDefault(sc => sc.ServiceName == "Multipass");
 
@@ -79,16 +119,17 @@ namespace microk8sWinInstaller
                 var matches = Regex.Matches(line, @"(.+?)\s+");
                 var name = matches[0].Groups[1]?.Value;
                 var status = matches[1].Groups[1]?.Value;
+                var ipv4 = matches[2].Groups[1]?.Value;
                 if (!String.IsNullOrWhiteSpace(name))
                 {
-                    activeInstances.Add(instanceCount - 2, new MultipassInstance(name, status)); // -2 cause the first line has the table headers and no vm names
+                    activeInstances.Add(instanceCount - 2, new MultipassInstance(name, status, ipv4)); // -2 cause the first line has the table headers and no vm names
                 }
             });
 
             if (!activeInstances.Any())
             {
-                var newVmName = CreateNewInstance();
-                activeInstances.Add(0, new MultipassInstance(newVmName, MultipassInstanceStatus.Running));
+                var newInstance = CreateNewInstance();
+                activeInstances.Add(0, newInstance);
             }
 
             Console.WriteLine();
@@ -97,7 +138,7 @@ namespace microk8sWinInstaller
             {
                 while (true)
                 {
-                    Console.WriteLine($"Enter a vm id (0 - {activeInstances.Count - 1}) to proceed or {activeInstances.Count} to create a new instance or p to purge all deleted instances: ");
+                    Console.WriteLine($"Enter a vm id (0 - {activeInstances.Count - 1}) to proceed, {activeInstances.Count} to create a new instance, p to purge all deleted instances or type \"exit\" to exit: ");
                     var strSelectedInstanceId = Console.ReadLine();
                     if (strSelectedInstanceId == "p")
                     {
@@ -106,7 +147,11 @@ namespace microk8sWinInstaller
                         {
                             Console.WriteLine(output);
                         });
-                        Console.ReadKey();
+                        return;
+                    }
+                    else if (strSelectedInstanceId == "exit")
+                    {
+                        programState = ProgramState.Exit;
                         return;
                     }
                     if (Int32.TryParse(strSelectedInstanceId, out selectedInstanceId) && 0 <= selectedInstanceId && activeInstances.Count >= selectedInstanceId)
@@ -122,16 +167,20 @@ namespace microk8sWinInstaller
 
             if (selectedInstanceId == activeInstances.Count)
             {
-                var newVmName = CreateNewInstance();
-                activeInstances.Add(0, new MultipassInstance(newVmName, MultipassInstanceStatus.Running));
+                var newInstance = CreateNewInstance();
+                activeInstances.Add(0, newInstance);
             }
 
             var menuItems = new Dictionary<int, string>();
 
-            var selectedInstance = activeInstances[selectedInstanceId];
+            selectedInstance = activeInstances[selectedInstanceId];
 
+            programState = ProgramState.Commands;
+        }
+
+        public static void CommandsScreen()
+        {
             Console.Clear();
-
             Console.WriteLine("Available commands:");
             foreach (var cmd in selectedInstance.InstanceCommands)
             {
@@ -139,28 +188,34 @@ namespace microk8sWinInstaller
             }
 
             Console.WriteLine();
-            var selectedCommandId = -1;
+
             while (true)
             {
-                Console.WriteLine($"Enter a command id (0 - {selectedInstance.InstanceCommands.Count - 1}) to proceed:");
-                var strSelectedCommandId = Console.ReadLine();
-                if (Int32.TryParse(strSelectedCommandId, out selectedCommandId) && 0 <= selectedCommandId && selectedInstance.InstanceCommands.Count > selectedCommandId)
+                var selectedCommandId = -1;
+                while (true)
                 {
-                    break;
+                    Console.WriteLine($"Enter a command id (0 - {selectedInstance.InstanceCommands.Count - 1}) to proceed or type \"exit\" to go back:");
+                    var strSelectedCommandId = Console.ReadLine();
+                    if (strSelectedCommandId == "exit")
+                    {
+                        programState = ProgramState.Main;
+                        return;
+                    }
+                    if (Int32.TryParse(strSelectedCommandId, out selectedCommandId) && 0 <= selectedCommandId && selectedInstance.InstanceCommands.Count > selectedCommandId)
+                    {
+                        break;
+                    }
                 }
+
+                var selectedCommand = selectedInstance.InstanceCommands[selectedCommandId];
+                Console.WriteLine();
+                var commandResult = selectedCommand.Command();
+                Console.WriteLine(commandResult);
+                Console.WriteLine();
             }
-
-            var selectedCommand = selectedInstance.InstanceCommands[selectedCommandId];
-            Console.WriteLine();
-            var commandResult = selectedCommand.Command();
-            Console.WriteLine(commandResult);
-            Console.WriteLine();
-            //OpenShell(activeInstances[selectedInstanceId]);
-
-            Console.ReadKey();
         }
 
-        public static string CreateNewInstance(bool openShellOnComplete = false)
+        public static MultipassInstance CreateNewInstance(bool openShellOnComplete = false)
         {
             var startupFolder = Environment.GetFolderPath(Environment.SpecialFolder.Startup);
             var startupShortcutPath = Path.Combine(startupFolder, "microk8sWinInstaller.lnk");
@@ -200,22 +255,22 @@ namespace microk8sWinInstaller
             var launchCommand = $"launch --cloud-init \"{cloudConfigPath}\"";
 
             string vmName = "";
+            string status = "";
+            string ipv4 = "";
             ExecMultipassCommand(launchCommand, line =>
             {
-                var name = Regex.Match(line, @"(\w+-\w+)\s+")?.Groups[1]?.Value;
-                Console.WriteLine(line);
-                if (!String.IsNullOrWhiteSpace(name))
-                {
-                    vmName = name;
-                }
+                var matches = Regex.Matches(line, @"(.+?)\s+");
+                vmName = matches[0].Groups[1]?.Value;
+                status = matches[1].Groups[1]?.Value;
+                ipv4 = matches[2].Groups[1]?.Value;
             });
 
             if (!String.IsNullOrWhiteSpace(vmName) && openShellOnComplete)
             {
-                OpenShell(vmName);
+                ExecMultipassCommand("shell " + vmName, redirectOutput: false);
             }
 
-            return vmName;
+            return new MultipassInstance(vmName, MultipassInstanceStatus.Running, ipv4);
         }
 
         public static void DownloadInstaller(string uri, string targetName)

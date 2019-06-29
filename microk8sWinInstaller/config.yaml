@@ -1,0 +1,18 @@
+﻿--- 
+default-instance: ~
+snaps: 
+  - 
+    commands: 
+        microk8s.config: "sudo microk8s.config"
+        microk8s.ctr: "sudo microk8s.ctr"
+        microk8s.disable: "sudo microk8s.disable"
+        microk8s.enable: "sudo microk8s.enable"
+        microk8s.inspect: "sudo microk8s.inspect"
+        microk8s.istioctl: "sudo microk8s.istioctl"
+        microk8s.kubectl: "sudo microk8s.kubectl"
+        microk8s.linkerd: "sudo microk8s.linkerd"
+        microk8s.reset: "sudo microk8s.reset"
+        microk8s.start: "sudo microk8s.start"
+        microk8s.status: "sudo microk8s.status"
+        microk8s.stop: "sudo microk8s.stop"
+    snap-name: microk8s
