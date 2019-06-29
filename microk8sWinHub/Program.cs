@@ -14,7 +14,6 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using static microk8sWinInstaller.Commons;
 
-[assembly: AssemblyInformationalVersionAttribute("Octokit Reflection Error when ILMerged")] // <-- Bypass the error described in the string on the left
 namespace microk8sWinInstaller
 {
     class Program
