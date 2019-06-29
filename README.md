@@ -1,4 +1,4 @@
-# microk8s-windows-installer
+# microk8s-windows-hub
 
 Simple windows installer, in the form of a console application that uses multipass to install microk8s.
 
